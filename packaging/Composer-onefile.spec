@@ -46,7 +46,11 @@ a = Analysis(
     [str(root / "composer.py")],
     pathex=[],
     binaries=[],
-    datas=[(str(root / "logo"), "logo"), (str(root / "samples"), "samples")],
+    datas=[
+        (str(root / "logo"), "logo"),
+        (str(root / "samples"), "samples"),
+        (str(root / "composer" / "resources"), "composer/resources"),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

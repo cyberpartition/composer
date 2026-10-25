@@ -95,8 +95,15 @@ def looks_like_email(value: str) -> bool:
     return True
 
 
-def render(template: str, record: dict[str, str], headers: list[str], row_number: int) -> Rendered:
+def render(
+    template: str,
+    record: dict[str, str],
+    headers: list[str],
+    row_number: int,
+    extras: dict[str, str] | None = None,
+) -> Rendered:
     lookup = {normalize(header): header for header in headers}
+    extra_lookup = {normalize(key): value for key, value in (extras or {}).items()}
     unknown: list[str] = []
     seen: set[str] = set()
 
@@ -105,6 +112,8 @@ def render(template: str, record: dict[str, str], headers: list[str], row_number
         key = normalize(token)
         if key in lookup:
             return record.get(lookup[key], "")
+        if key in extra_lookup:
+            return extra_lookup[key]
         if key == "row" and "row" not in lookup:
             return str(row_number)
         raw = match.group(0)
@@ -114,6 +123,20 @@ def render(template: str, record: dict[str, str], headers: list[str], row_number
         return raw
 
     return Rendered(_TOKEN.sub(replace, template), unknown)
+
+
+_ZIP_NAMES = ("zip", "zip code", "zipcode", "postal code", "postalcode", "postal", "zip_code", "zcta")
+
+
+def guess_zip_column(headers: list[str]) -> str | None:
+    found = find_header(headers, _ZIP_NAMES)
+    if found:
+        return found
+    for header in headers:
+        folded = normalize(header)
+        if "zip" in folded or folded.startswith("postal"):
+            return header
+    return None
 
 
 def default_filename_pattern(headers: list[str]) -> str:

@@ -14,6 +14,7 @@ from pathlib import Path
 from docx import Document
 
 import composer.export as export
+from composer.cities import computed_fields, nearest_city, normalize_zip
 from composer.data import (
     EXAMPLE_BODY,
     EXAMPLE_SUBJECT,
@@ -63,6 +64,19 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(merged.unknown, ["[Nickname]"])
         self.assertEqual(closest_header("Nickname", ["First Name"]), None)
         self.assertEqual(closest_header("Phone", ["Phone Number"]), "Phone Number")
+
+    def test_nearest_city_is_a_field(self) -> None:
+        self.assertEqual(normalize_zip("90210-1234"), "90210")
+        self.assertEqual(normalize_zip("501"), "00501")
+        self.assertEqual(nearest_city("10001"), "New York, NY")
+        self.assertEqual(nearest_city("02101"), "Boston, MA")
+        self.assertEqual(nearest_city("90210"), "Los Angeles, CA")
+        self.assertEqual(nearest_city("77002"), "Houston, TX")
+        self.assertEqual(nearest_city(""), "")
+        extras = computed_fields({"zip code": "10001"}, ["zip code"], "zip code")
+        merged = render("Hello from [Nearest City].", {"zip code": "10001"}, ["zip code"], 1, extras)
+        self.assertEqual(merged.text, "Hello from New York, NY.")
+        self.assertEqual(merged.unknown, [])
 
     def test_row_token_and_empty_cell(self) -> None:
         merged = render("[Row]-[Phone]", {"Phone": ""}, ["Phone"], 12)

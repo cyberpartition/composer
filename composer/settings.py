@@ -16,6 +16,7 @@ DEFAULTS: dict[str, object] = {
     "body": "",
     "filename_pattern": "",
     "recipient_column": "",
+    "zip_column": "",
     "from_name": "",
     "from_email": "",
     "smtp_host": "",

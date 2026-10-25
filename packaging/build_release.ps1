@@ -1,4 +1,4 @@
-# Build Composer 1.0.0: portable folder, single exe, and installer.
+# Build Composer: portable folder, single exe, and installer.
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
@@ -23,11 +23,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $portable = Join-Path $release "portable\Composer"
 New-Item -ItemType Directory -Path (Split-Path $portable) -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $release "pyinstaller\Composer") -Destination $portable -Recurse
-Compress-Archive -Path $portable -DestinationPath (Join-Path $release "Composer-1.0.0-portable.zip") -CompressionLevel Optimal
+$versionLine = Select-String -Path (Join-Path $Root "composer\__init__.py") -Pattern '__version__ = "([^"]+)"'
+$version = $versionLine.Matches[0].Groups[1].Value
+Compress-Archive -Path $portable -DestinationPath (Join-Path $release "Composer-$version-portable.zip") -CompressionLevel Optimal
 
 & $pyinstaller --noconfirm --distpath (Join-Path $release "onefile") --workpath (Join-Path $work "onefile") (Join-Path $Root "packaging\Composer-onefile.spec")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Copy-Item (Join-Path $release "onefile\Composer.exe") (Join-Path $release "Composer-1.0.0.exe") -Force
+Copy-Item (Join-Path $release "onefile\Composer.exe") (Join-Path $release "Composer-$version.exe") -Force
 
 $iscc = @(
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
@@ -38,6 +40,6 @@ if (-not $iscc) { throw "Inno Setup compiler (ISCC.exe) was not found." }
 & $iscc (Join-Path $Root "packaging\composer.iss")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Write-Output "Portable: $(Join-Path $release 'Composer-1.0.0-portable.zip')"
-Write-Output "Exe: $(Join-Path $release 'Composer-1.0.0.exe')"
-Write-Output "Installer: $(Join-Path $release 'Composer-1.0.0-setup.exe')"
+Write-Output "Portable: $(Join-Path $release "Composer-$version-portable.zip")"
+Write-Output "Exe: $(Join-Path $release "Composer-$version.exe")"
+Write-Output "Installer: $(Join-Path $release "Composer-$version-setup.exe")"

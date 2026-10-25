@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from composer import __version__
 from composer.branding import app_icon, load_lockup, logical_height, logical_width
+from composer.cities import NEAREST_CITY, computed_fields, nearest_city, normalize_zip
 from composer.data import (
     EMAIL,
     EXAMPLE_BODY,
@@ -34,7 +35,9 @@ from composer.data import (
     Table,
     closest_header,
     default_filename_pattern,
+    find_header,
     guess_email_column,
+    guess_zip_column,
     looks_like_email,
     record_title,
     render,
@@ -104,6 +107,7 @@ class MainWindow(QWidget):
         self._subject_edited = False
         self._filename_edited = False
         self._preferred_recipient = ""
+        self._preferred_zip = ""
         self._smtp_password = ""
         self._smtp: dict[str, object] = {
             "smtp_host": "",
@@ -231,6 +235,17 @@ class MainWindow(QWidget):
         layout.addWidget(self.insert_hint)
         self.field_host = FieldHost()
         layout.addWidget(self.field_host)
+        self.zip_combo = QComboBox()
+        self.zip_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout.addWidget(labeled("ZIP column", self.zip_combo))
+        layout.addWidget(
+            hint_label(
+                "Nearest City is the nearest large city in that ZIP code's state. "
+                "It is calculated on this computer."
+            )
+        )
+        self._fill_zip()
+        self._fill_fields()
 
         layout.addSpacing(8)
         layout.addWidget(section_label("Save to"))
@@ -272,6 +287,7 @@ class MainWindow(QWidget):
         self.sheet_combo.currentTextChanged.connect(self._on_sheet_changed)
         self.filename_edit.textEdited.connect(self._on_filename_edited)
         self.filename_edit.textChanged.connect(self._sync_filename_preview)
+        self.zip_combo.currentIndexChanged.connect(self._on_zip_changed)
         self.sample_btn.setVisible(sample_csv().is_file())
         return sidebar
 
@@ -523,6 +539,7 @@ class MainWindow(QWidget):
             "smtp_username": str(settings.get("smtp_username") or ""),
         }
         self._preferred_recipient = str(settings.get("recipient_column") or "")
+        self._preferred_zip = str(settings.get("zip_column") or "")
         with self._editing():
             if settings.get("body_edited"):
                 self.body_edit.setPlainText(str(settings.get("body") or ""))
@@ -574,6 +591,7 @@ class MainWindow(QWidget):
                 "body": self.body_edit.toPlainText() if self._body_edited else "",
                 "filename_pattern": self.filename_edit.text() if self._filename_edited else "",
                 "recipient_column": self._preferred_recipient,
+                "zip_column": self._preferred_zip,
                 "from_name": self.from_name.text().strip(),
                 "from_email": self.from_email.text().strip(),
                 "smtp_host": self._smtp.get("smtp_host", ""),
@@ -620,6 +638,7 @@ class MainWindow(QWidget):
         self.record_index = 0
         self._fill_sheets()
         self._fill_recipient()
+        self._fill_zip()
         self._fill_fields()
         self._show_source()
         if not self._filename_edited:
@@ -729,8 +748,9 @@ class MainWindow(QWidget):
         self.position_label.setText(f"{row_number} of {total}")
         self.prev_btn.setEnabled(self.record_index > 0 and not self._busy)
         self.next_btn.setEnabled(self.record_index < total - 1 and not self._busy)
-        body = render(self.body_edit.toPlainText(), record, self.table.headers, row_number)
-        subject = render(self.subject_edit.text(), record, self.table.headers, row_number)
+        extras = self._extras(record)
+        body = render(self.body_edit.toPlainText(), record, self.table.headers, row_number, extras)
+        subject = render(self.subject_edit.text(), record, self.table.headers, row_number, extras)
         self.who_label.setText(record_title(record, self.table.headers))
         if self.preview_body.toPlainText() != body.text:
             self.preview_body.setPlainText(body.text)
@@ -743,10 +763,16 @@ class MainWindow(QWidget):
             self.meta_label.setText(f"To:  {recipient or '(no email)'}")
             self.subject_preview.setText(f"Subject:  {subject.text.strip() or '(none)'}")
             invalid = not looks_like_email(recipient)
-            self.row_warning.setVisible(invalid)
-            self.row_warning.setText("This row will be skipped because the email address is missing or not valid.")
+            city_note = "" if invalid else self._city_note(record)
+            self.row_warning.setVisible(invalid or bool(city_note))
+            if invalid:
+                self.row_warning.setText("This row will be skipped because the email address is missing or not valid.")
+            else:
+                self.row_warning.setText(city_note)
         else:
-            self.row_warning.setVisible(False)
+            city_note = self._city_note(record)
+            self.row_warning.setVisible(bool(city_note))
+            self.row_warning.setText(city_note)
         unknown = list(dict.fromkeys([*body.unknown, *subject.unknown]))
         if unknown:
             self.unknown_label.setText(self._unknown_message(unknown))
@@ -944,6 +970,7 @@ class MainWindow(QWidget):
             self.table.records[0],
             self.table.headers,
             1,
+            self._extras(self.table.records[0]),
         )
         if probe.unknown:
             notes.append("These tokens do not match a column: " + ", ".join(probe.unknown) + ".")
@@ -963,6 +990,7 @@ class MainWindow(QWidget):
             body_template=self.body_edit.toPlainText(),
             filename_template=self.filename_edit.text(),
             recipient_column=self._recipient_column(),
+            zip_column=self._zip_column(),
             from_name=single_line(self.from_name.text()),
             from_email=from_email,
         )
@@ -1047,16 +1075,37 @@ class MainWindow(QWidget):
         if choice:
             self._preferred_recipient = choice
 
+    def _fill_zip(self) -> None:
+        self.zip_combo.blockSignals(True)
+        self.zip_combo.clear()
+        self.zip_combo.addItem("Choose a column", "")
+        choice = ""
+        if self.table:
+            for header in self.table.headers:
+                self.zip_combo.addItem(header.replace("&", "&&"), header)
+            if self._preferred_zip in self.table.headers:
+                choice = self._preferred_zip
+            else:
+                choice = guess_zip_column(self.table.headers) or ""
+        index = self.zip_combo.findData(choice) if choice else 0
+        self.zip_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.zip_combo.blockSignals(False)
+        if choice:
+            self._preferred_zip = choice
+
     def _fill_fields(self) -> None:
         self.field_host.flow.clear()
-        if self.table is None:
-            self._update_insert_hint()
-            self.field_host.refresh()
-            return
-        for header in self.table.headers:
+        headers = self.table.headers if self.table else []
+        for header in headers:
             self._add_chip(header, f"[{header}]", f"Insert [{header}]")
-        if not any(header.casefold() == "row" for header in self.table.headers):
+        if self.table and not any(header.casefold() == "row" for header in headers):
             self._add_chip("Row", "[Row]", "Insert the row number, starting at 1. This is not a column in the file.")
+        if find_header(headers, ("nearest city",)) is None:
+            self._add_chip(
+                NEAREST_CITY,
+                f"[{NEAREST_CITY}]",
+                "Nearest large city in the same state as the ZIP code. Calculated on this computer.",
+            )
         self._update_insert_hint()
         self.field_host.refresh()
 
@@ -1090,6 +1139,7 @@ class MainWindow(QWidget):
         self.word_btn.setEnabled(not busy)
         self.sheet_combo.setEnabled(not busy)
         self.recipient.setEnabled(not busy)
+        self.zip_combo.setEnabled(not busy)
         self.subject_edit.setEnabled(not busy)
         self.body_edit.setEnabled(not busy)
         self.from_name.setEnabled(not busy)
@@ -1140,6 +1190,7 @@ class MainWindow(QWidget):
             self.table.records[self.record_index],
             self.table.headers,
             self.record_index + 1,
+            self._extras(self.table.records[self.record_index]),
         )
         stem = safe_stem(rendered.text) or f"draft_{self.record_index + 1}"
         self.filename_preview.setText(f"File name: {stem}{extension}")
@@ -1163,7 +1214,7 @@ class MainWindow(QWidget):
 
     def _update_insert_hint(self) -> None:
         if self.table is None:
-            self.insert_hint.setText("Load a spreadsheet, then click a column to insert it.")
+            self.insert_hint.setText("Nearest City uses the ZIP column. Load a spreadsheet to see its other fields.")
             return
         target = self._insert_target
         if target is self.subject_edit:
@@ -1177,6 +1228,36 @@ class MainWindow(QWidget):
     def _recipient_column(self) -> str:
         data = self.recipient.currentData()
         return data if isinstance(data, str) else ""
+
+    def _zip_column(self) -> str:
+        data = self.zip_combo.currentData()
+        return data if isinstance(data, str) else ""
+
+    def _extras(self, record: dict[str, str]) -> dict[str, str]:
+        headers = self.table.headers if self.table else []
+        return computed_fields(record, headers, self._zip_column())
+
+    def _city_note(self, record: dict[str, str]) -> str:
+        if self.table is None or find_header(self.table.headers, ("nearest city",)):
+            return ""
+        templates = "\n".join(
+            (self.body_edit.toPlainText(), self.subject_edit.text(), self.filename_edit.text())
+        )
+        if "nearest city" not in templates.casefold():
+            return ""
+        column = self._zip_column()
+        if not column:
+            return "Choose the ZIP column to fill Nearest City."
+        raw = record.get(column, "")
+        if not normalize_zip(raw):
+            return "This row has no ZIP code, so Nearest City is blank."
+        if not nearest_city(raw):
+            return "This ZIP code is not in the offline list, so Nearest City is blank."
+        return ""
+
+    def _on_zip_changed(self) -> None:
+        self._preferred_zip = self._zip_column()
+        self.refresh_preview()
 
     def _on_sheet_changed(self, name: str) -> None:
         if self._busy or self.table is None or not name or name == self.table.sheet:

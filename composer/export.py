@@ -13,6 +13,7 @@ from docx.shared import Pt, RGBColor
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate
 
+from composer.cities import computed_fields
 from composer.data import (
     EMAIL,
     WORD,
@@ -55,6 +56,7 @@ class ExportJob:
     recipient_column: str
     from_name: str = ""
     from_email: str = ""
+    zip_column: str = ""
 
 
 def export_batch(
@@ -79,9 +81,10 @@ def export_batch(
         if cancel and cancel():
             report.cancelled = True
             break
-        body = render(job.body_template, record, job.headers, index)
-        subject = render(job.subject_template, record, job.headers, index)
-        filename_render = render(job.filename_template, record, job.headers, index)
+        extras = computed_fields(record, job.headers, job.zip_column)
+        body = render(job.body_template, record, job.headers, index, extras)
+        subject = render(job.subject_template, record, job.headers, index, extras)
+        filename_render = render(job.filename_template, record, job.headers, index, extras)
         for token in (*body.unknown, *subject.unknown, *filename_render.unknown):
             if token not in seen_unknown:
                 seen_unknown.add(token)
