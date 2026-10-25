@@ -6,6 +6,7 @@ import inspect
 import os
 import tempfile
 import unittest
+import zipfile
 from datetime import date
 from email import policy
 from email.parser import BytesParser
@@ -224,6 +225,29 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(names, ["Ada.docx", "Ada_2.docx"])
         text = "\n".join(paragraph.text for paragraph in Document(report.written[0].path).paragraphs)
         self.assertIn("Hello Ada", text)
+
+    def test_create_zip_packs_the_generated_files(self) -> None:
+        report = export_batch(
+            ExportJob(
+                kind=EMAIL,
+                headers=["email"],
+                records=[{"email": "ada@example.com"}],
+                source_name="one.csv",
+                output_dir=self.output,
+                subject_template="Hi",
+                body_template="Hello",
+                filename_template="note",
+                recipient_column="email",
+                create_zip=True,
+            )
+        )
+        self.assertIsNotNone(report.archive)
+        self.assertTrue(report.archive.is_file())
+        self.assertEqual(report.archive.parent, report.folder.parent)
+        with zipfile.ZipFile(report.archive) as archive:
+            names = archive.namelist()
+        self.assertTrue(any(name.endswith("note.eml") for name in names))
+        self.assertTrue(any(name.endswith("Review notes.txt") for name in names))
 
     def test_cancel_writes_nothing(self) -> None:
         report = export_batch(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -41,6 +42,7 @@ class BatchReport:
     skipped: list[tuple[int, str]] = field(default_factory=list)
     unknown_tokens: list[str] = field(default_factory=list)
     cancelled: bool = False
+    archive: Path | None = None
 
 
 @dataclass
@@ -57,6 +59,7 @@ class ExportJob:
     from_name: str = ""
     from_email: str = ""
     zip_column: str = ""
+    create_zip: bool = False
 
 
 def export_batch(
@@ -136,7 +139,20 @@ def export_batch(
             progress(index, total)
 
     _write_review(report, job.source_name)
+    if job.create_zip:
+        report.archive = _zip_batch(folder)
     return report
+
+
+def _zip_batch(folder: Path) -> Path:
+    destination = folder.parent / f"{folder.name}.zip"
+    if destination.exists():
+        destination = folder.parent / f"{folder.name} files.zip"
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(folder.rglob("*")):
+            if path.is_file():
+                archive.write(path, path.relative_to(folder.parent).as_posix())
+    return destination
 
 
 def _create_batch_folder(parent: Path, label: str) -> Path:

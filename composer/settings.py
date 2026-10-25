@@ -11,6 +11,7 @@ DEFAULTS: dict[str, object] = {
     "source": "",
     "sheet": "",
     "output_dir": "",
+    "create_zip": False,
     "kind": "email",
     "subject": "",
     "body": "",

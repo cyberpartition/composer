@@ -9,6 +9,7 @@ from PySide6.QtCore import QByteArray, QEvent, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPalette, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -257,6 +258,8 @@ class MainWindow(QWidget):
         folder_row.addWidget(self.output_browse)
         layout.addLayout(folder_row)
         layout.addWidget(hint_label("Each run creates a new dated folder inside this one."))
+        self.create_zip = QCheckBox("Also create a .zip of the generated files")
+        layout.addWidget(self.create_zip)
         self.filename_edit = self._line("[Last Name]_[First Name]")
         layout.addWidget(labeled("File name", self.filename_edit))
         self.filename_preview = hint_label("Each row becomes its own file.")
@@ -558,6 +561,7 @@ class MainWindow(QWidget):
             self.from_email.setText(str(settings.get("from_email") or ""))
             output = str(settings.get("output_dir") or "") or str(default_output_dir())
             self.output_dir.setText(output)
+            self.create_zip.setChecked(bool(settings.get("create_zip")))
         self._restored_geometry = self._restore_geometry(settings.get("geometry"))
         self.set_kind(WORD if settings.get("kind") == WORD else EMAIL)
 
@@ -586,6 +590,7 @@ class MainWindow(QWidget):
                 "source": str(self.table.source) if self.table else "",
                 "sheet": (self.table.sheet or "") if self.table else "",
                 "output_dir": self.output_dir.text().strip(),
+                "create_zip": self.create_zip.isChecked(),
                 "kind": self._kind,
                 "subject": self.subject_edit.text() if self._subject_edited else "",
                 "body": self.body_edit.toPlainText() if self._body_edited else "",
@@ -993,6 +998,7 @@ class MainWindow(QWidget):
             zip_column=self._zip_column(),
             from_name=single_line(self.from_name.text()),
             from_email=from_email,
+            create_zip=self.create_zip.isChecked(),
         )
         self._set_busy(True)
         self._worker = GenerateWorker(job)
@@ -1017,18 +1023,20 @@ class MainWindow(QWidget):
         if count != 1:
             kind += "s"
         sent_note = "" if report.kind == WORD else " Nothing was sent."
+        zip_note = f' Zip file: "{report.archive.name}".' if report.archive else ""
         if report.cancelled:
-            message = f'Stopped early. Saved {count} {kind} in "{report.folder.name}".{sent_note}'
+            message = f'Stopped early. Saved {count} {kind} in "{report.folder.name}".{zip_note}{sent_note}'
             tone = "warn"
         elif skipped:
-            message = f'Saved {count} {kind} in "{report.folder.name}". Skipped {skipped} rows.{sent_note}'
+            message = f'Saved {count} {kind} in "{report.folder.name}". Skipped {skipped} rows.{zip_note}{sent_note}'
             tone = "warn"
         else:
-            message = f'Saved {count} {kind} in "{report.folder.name}".{sent_note}'
+            message = f'Saved {count} {kind} in "{report.folder.name}".{zip_note}{sent_note}'
             tone = "ok"
         self.set_status(message, tone)
-        self.status_label.setToolTip(str(report.folder))
-        self.open_btn.setToolTip(str(report.folder))
+        tip = str(report.folder if report.archive is None else f"{report.folder}\n{report.archive}")
+        self.status_label.setToolTip(tip)
+        self.open_btn.setToolTip(tip)
 
     def _on_generate_failed(self, message: str) -> None:
         failed = "Could not finish writing the drafts."
@@ -1147,6 +1155,7 @@ class MainWindow(QWidget):
         self.filename_edit.setEnabled(not busy)
         self.output_dir.setEnabled(not busy)
         self.output_browse.setEnabled(not busy)
+        self.create_zip.setEnabled(not busy)
         self.example_btn.setEnabled(not busy)
         self.clear_btn.setEnabled(not busy)
         self.field_host.setEnabled(not busy)
