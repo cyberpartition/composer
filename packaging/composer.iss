@@ -1,5 +1,5 @@
 #define MyAppName "Composer"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "cyberpartition"
 #define MyAppExeName "Composer.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\Composer
 DefaultGroupName=Composer
 DisableProgramGroupPage=yes
 OutputDir=..\release
-OutputBaseFilename=Composer-1.2.0-setup
+OutputBaseFilename=Composer-1.3.0-setup
 SetupIconFile=composer.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64

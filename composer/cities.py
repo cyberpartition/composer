@@ -1,4 +1,4 @@
-"""Offline ZIP code to the nearest large city in the same state."""
+"""Offline ZIP code to the nearest FBI field office."""
 
 from __future__ import annotations
 

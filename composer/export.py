@@ -12,6 +12,7 @@ from pathlib import Path
 from docx import Document
 from docx.shared import Pt, RGBColor
 from email.message import EmailMessage
+from email.policy import EmailPolicy
 from email.utils import formataddr, formatdate
 
 from composer.cities import computed_fields
@@ -199,7 +200,9 @@ def _write_eml(
     from_name: str,
     from_email: str,
 ) -> None:
-    message = EmailMessage()
+    # 8bit UTF-8 keeps words intact. The default quoted-printable encoding
+    # inserts "=" soft breaks in the middle of long lines.
+    message = EmailMessage(policy=EmailPolicy(cte_type="8bit", max_line_length=0, utf8=True))
     message["To"] = recipient
     message["Subject"] = subject
     if from_email:
@@ -207,7 +210,7 @@ def _write_eml(
     message["Date"] = formatdate(localtime=True)
     message["X-Unsent"] = "1"
     message["X-Composer"] = "draft"
-    message.set_content(body)
+    message.set_content(body, subtype="plain", charset="utf-8", cte="8bit")
     path.write_bytes(message.as_bytes())
 
 

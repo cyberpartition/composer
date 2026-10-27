@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, Qt, QThread, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QKeySequence, QPalette, QShortcut, QTextCursor
+from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QKeySequence, QPalette, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -17,8 +17,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QPushButton,
     QSizePolicy,
     QScrollArea,
+    QSplitter,
     QStackedWidget,
     QTextEdit,
     QVBoxLayout,
@@ -120,6 +122,8 @@ class MainWindow(QWidget):
         self._insert_target: QWidget | None = None
         self._shortcuts: list[QShortcut] = []
         self._did_show = False
+        self._fitting_chips = False
+        self._sidebar_width = 420
         self._restored_geometry = False
         self._settings = load_settings()
 
@@ -138,12 +142,15 @@ class MainWindow(QWidget):
         bar.setAttribute(Qt.WA_StyledBackground, True)
         root.addWidget(bar)
         root.addWidget(self._build_header())
-        body = QHBoxLayout()
-        body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
-        body.addWidget(self._build_sidebar())
-        body.addWidget(self._build_main(), 1)
-        root.addLayout(body, 1)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setObjectName("BodySplit")
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.addWidget(self._build_sidebar())
+        self.splitter.addWidget(self._build_main())
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.splitterMoved.connect(self._on_splitter_moved)
+        root.addWidget(self.splitter, 1)
         root.addWidget(self._build_footer())
         self._install_shortcuts()
         for widget in (self.subject_edit, self.body_edit, self.filename_edit):
@@ -182,8 +189,10 @@ class MainWindow(QWidget):
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
+        self.sidebar = sidebar
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(332)
+        sidebar.setMinimumWidth(280)
+        sidebar.setMaximumWidth(720)
         sidebar.setAttribute(Qt.WA_StyledBackground, True)
         outer = QVBoxLayout(sidebar)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -191,7 +200,7 @@ class MainWindow(QWidget):
         self.side_scroll.setObjectName("SideScroll")
         self.side_scroll.setWidgetResizable(True)
         self.side_scroll.setFrameShape(QFrame.NoFrame)
-        self.side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.side_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         viewport = self.side_scroll.viewport()
         viewport_palette = viewport.palette()
         viewport_palette.setColor(QPalette.Window, QColor("#0C1622"))
@@ -241,7 +250,7 @@ class MainWindow(QWidget):
         layout.addWidget(labeled("ZIP column", self.zip_combo))
         layout.addWidget(
             hint_label(
-                "Nearest City is the nearest large city in that ZIP code's state. "
+                "Nearest City is the closest of the 56 FBI field offices. "
                 "It is calculated on this computer."
             )
         )
@@ -543,6 +552,11 @@ class MainWindow(QWidget):
         }
         self._preferred_recipient = str(settings.get("recipient_column") or "")
         self._preferred_zip = str(settings.get("zip_column") or "")
+        try:
+            self._sidebar_width = int(settings.get("sidebar_width") or 420)
+        except (TypeError, ValueError):
+            self._sidebar_width = 420
+        self._sidebar_width = max(280, min(720, self._sidebar_width))
         with self._editing():
             if settings.get("body_edited"):
                 self.body_edit.setPlainText(str(settings.get("body") or ""))
@@ -587,6 +601,7 @@ class MainWindow(QWidget):
         save_settings(
             {
                 "geometry": bytes(self.saveGeometry()).hex(),
+                "sidebar_width": self.splitter.sizes()[0] if self.splitter.sizes() else self._sidebar_width,
                 "source": str(self.table.source) if self.table else "",
                 "sheet": (self.table.sheet or "") if self.table else "",
                 "output_dir": self.output_dir.text().strip(),
@@ -894,7 +909,8 @@ class MainWindow(QWidget):
             self._did_show = True
             if not self._restored_geometry:
                 self._center()
-            QTimer.singleShot(0, self.field_host.refresh)
+            self._apply_sidebar_width()
+            QTimer.singleShot(0, self._fit_chips)
 
     def closeEvent(self, event) -> None:
         if self._worker is not None and self._worker.isRunning():
@@ -1112,16 +1128,52 @@ class MainWindow(QWidget):
             self._add_chip(
                 NEAREST_CITY,
                 f"[{NEAREST_CITY}]",
-                "Nearest large city in the same state as the ZIP code. Calculated on this computer.",
+                "Closest of the 56 FBI field offices to this ZIP code. Calculated on this computer.",
             )
         self._update_insert_hint()
-        self.field_host.refresh()
+        self._fit_chips()
 
     def _add_chip(self, label: str, token: str, tip: str) -> None:
         button = make_button(label.replace("&", "&&"), "FieldChip")
+        button.setProperty("chipLabel", label)
         button.setToolTip(tip)
         button.clicked.connect(lambda _checked=False, value=token: self.insert_token(value))
         self.field_host.flow.addWidget(button)
+
+    def _apply_sidebar_width(self) -> None:
+        total = max(self.splitter.width(), 1)
+        side = max(280, min(720, self._sidebar_width))
+        self.splitter.setSizes([side, max(320, total - side)])
+
+    def _on_splitter_moved(self, _pos: int, _index: int) -> None:
+        sizes = self.splitter.sizes()
+        if sizes:
+            self._sidebar_width = sizes[0]
+        self._fit_chips()
+
+    def _fit_chips(self) -> None:
+        if self._fitting_chips:
+            return
+        self._fitting_chips = True
+        try:
+            available = self.field_host.width()
+            if available < 80:
+                available = max(160, self.sidebar.width() - 48)
+            available = max(80, available)
+            for button in self.field_host.findChildren(QPushButton):
+                full = button.property("chipLabel")
+                if not isinstance(full, str) or not full:
+                    continue
+                metrics = QFontMetrics(button.font())
+                padding = 28
+                natural = metrics.horizontalAdvance(full) + padding
+                width = min(max(natural, 48), available)
+                button.setFixedWidth(width)
+                shown = metrics.elidedText(full, Qt.TextElideMode.ElideMiddle, max(16, width - padding))
+                button.setText(shown.replace("&", "&&"))
+            self.field_host.refresh()
+        finally:
+            self._fitting_chips = False
 
     def _show_source(self) -> None:
         if self.table is None:

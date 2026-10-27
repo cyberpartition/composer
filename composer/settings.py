@@ -8,6 +8,7 @@ from composer.paths import settings_file
 
 DEFAULTS: dict[str, object] = {
     "geometry": "",
+    "sidebar_width": 420,
     "source": "",
     "sheet": "",
     "output_dir": "",

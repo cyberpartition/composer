@@ -33,7 +33,10 @@ QFrame#BrandBar {
 QFrame#Sidebar {
     background: #0C1622;
     border: none;
-    border-right: 1px solid #24384C;
+}
+QSplitter#BodySplit::handle {
+    background: #24384C;
+    width: 6px;
 }
 QScrollArea#SideScroll {
     background: #0C1622;
@@ -266,6 +269,18 @@ QScrollBar::handle:vertical:hover { background: #3D5872; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 QScrollBar:horizontal { height: 0px; }
+QScrollArea#SideScroll QScrollBar:horizontal {
+    height: 12px;
+    background: transparent;
+    margin: 2px 4px;
+}
+QScrollArea#SideScroll QScrollBar::handle:horizontal {
+    background: #2C4660;
+    border-radius: 4px;
+    min-width: 28px;
+}
+QScrollArea#SideScroll QScrollBar::add-line:horizontal,
+QScrollArea#SideScroll QScrollBar::sub-line:horizontal { width: 0px; }
 QTableView {
     background: #0C1622;
     alternate-background-color: #132433;

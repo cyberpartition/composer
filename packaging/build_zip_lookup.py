@@ -87,29 +87,98 @@ NAME_SUFFIXES = (
 )
 
 
+# The 56 FBI field offices. Coordinates are the office locations.
+# Nashville replaced the Knoxville and Memphis field offices.
+# Billings is the Montana field office. Norfolk remains a field office.
+FBI_FIELD_OFFICES = (
+    ("Albany", "NY", 42.635131, -73.773212),
+    ("Albuquerque", "NM", 35.12884, -106.613572),
+    ("Anchorage", "AK", 61.21664, -149.88223),
+    ("Atlanta", "GA", 33.846091, -84.307531),
+    ("Baltimore", "MD", 39.32828, -76.746672),
+    ("Billings", "MT", 45.7833, -108.5059),
+    ("Birmingham", "AL", 33.523481, -86.815631),
+    ("Boston", "MA", 42.39754, -71.038499),
+    ("Buffalo", "NY", 42.887711, -78.879491),
+    ("Charlotte", "NC", 35.140511, -80.920471),
+    ("Chicago", "IL", 41.866591, -87.680001),
+    ("Cincinnati", "OH", 39.208789, -84.396799),
+    ("Cleveland", "OH", 41.50828, -81.686052),
+    ("Columbia", "SC", 34.061201, -81.129961),
+    ("Dallas", "TX", 32.853981, -96.887752),
+    ("Denver", "CO", 39.76725, -104.895602),
+    ("Detroit", "MI", 42.331621, -83.053842),
+    ("El Paso", "TX", 31.816181, -106.536761),
+    ("Honolulu", "HI", 21.321131, -158.06613),
+    ("Houston", "TX", 29.834411, -95.481732),
+    ("Indianapolis", "IN", 39.91061, -86.059172),
+    ("Jackson", "MS", 32.39486, -90.190341),
+    ("Jacksonville", "FL", 30.247521, -81.521872),
+    ("Kansas City", "MO", 39.09699, -94.593252),
+    ("Las Vegas", "NV", 36.195671, -115.164121),
+    ("Little Rock", "AR", 34.741511, -92.395232),
+    ("Los Angeles", "CA", 33.810929, -118.136751),
+    ("Louisville", "KY", 38.217691, -85.528741),
+    ("Miami", "FL", 25.990296, -80.33516),
+    ("Milwaukee", "WI", 42.978595, -87.858621),
+    ("Minneapolis", "MN", 45.072819, -93.301082),
+    ("Mobile", "AL", 30.692301, -88.040871),
+    ("Nashville", "TN", 36.1437, -86.6798),
+    ("New Haven", "CT", 41.308721, -72.920052),
+    ("New Orleans", "LA", 30.030081, -90.041901),
+    ("New York", "NY", 40.712628, -74.009709),
+    ("Newark", "NJ", 40.73866, -74.164371),
+    ("Norfolk", "VA", 36.856934, -76.211773),
+    ("Oklahoma City", "OK", 35.615442, -97.574299),
+    ("Omaha", "NE", 41.214641, -96.102512),
+    ("Philadelphia", "PA", 39.95271, -75.149992),
+    ("Phoenix", "AZ", 33.683761, -112.065581),
+    ("Pittsburgh", "PA", 40.42159, -79.958742),
+    ("Portland", "OR", 45.575805, -122.565449),
+    ("Richmond", "VA", 37.63899, -77.483131),
+    ("Sacramento", "CA", 38.793838, -121.305308),
+    ("Salt Lake City", "UT", 40.775567, -112.021082),
+    ("San Antonio", "TX", 29.57088, -98.597612),
+    ("San Diego", "CA", 32.89622, -117.215298),
+    ("San Francisco", "CA", 37.779847, -122.418985),
+    ("San Juan", "PR", 18.42333, -66.069272),
+    ("Seattle", "WA", 47.60665, -122.33488),
+    ("Springfield", "IL", 39.764491, -89.643441),
+    ("St. Louis", "MO", 38.630521, -90.212751),
+    ("Tampa", "FL", 27.94819, -82.537291),
+    ("Washington", "DC", 38.897634, -77.015957),
+)
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Pass the folder that contains the Census downloads.")
+    if len(FBI_FIELD_OFFICES) != 56:
+        raise SystemExit(f"Expected 56 FBI field offices, found {len(FBI_FIELD_OFFICES)}.")
     source = Path(sys.argv[1])
     zips = load_zips(source)
-    cities = load_cities(source)
-    by_state: dict[str, list[tuple[str, float, float, int]]] = {}
-    for state, name, lat, lon, population in cities:
-        by_state.setdefault(state, []).append((name, lat, lon, population))
-
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     written = 0
     with OUTPUT.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["zip", "city"])
         for code in sorted(zips):
-            state, lat, lon = zips[code]
-            city = choose_city(lat, lon, by_state.get(state, []))
-            if not city:
-                continue
-            writer.writerow([code, f"{city}, {state}"])
+            _state, lat, lon = zips[code]
+            city = nearest_office(lat, lon)
+            writer.writerow([code, city])
             written += 1
     print(f"Wrote {written} ZIP codes to {OUTPUT}")
+
+
+def nearest_office(lat: float, lon: float) -> str:
+    best_name = ""
+    best_distance = math.inf
+    for name, state, office_lat, office_lon in FBI_FIELD_OFFICES:
+        distance = haversine_miles(lat, lon, office_lat, office_lon)
+        if distance < best_distance:
+            best_distance = distance
+            best_name = f"{name}, {state}"
+    return best_name
 
 
 def choose_city(lat: float, lon: float, cities: list[tuple[str, float, float, int]]) -> str:
